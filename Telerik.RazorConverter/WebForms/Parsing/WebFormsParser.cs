@@ -21,8 +21,10 @@
         private static Regex aspEncodedExprRegex;
         private static Regex textRegex;
         private static Regex runatServerTagRegex;
-        private static Regex scriptRegex;
         private static Regex doctypeRegex;
+        private static Regex scriptStartRegex;
+        private static Regex scriptEndRegex;
+        private static Regex scriptGrLsRegex;
 
         static WebFormsParser()
         {
@@ -35,8 +37,10 @@
             aspEncodedExprRegex = new AspEncodedExprRegex();
             textRegex = new TextRegex();
             runatServerTagRegex = new RunatServerTagRegex();
-            scriptRegex = new Regex(@"\G\s*\<script.*?\>.*?\<\/script\>\s*", RegexOptions.Multiline | RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            scriptStartRegex = new Regex(@"\G\s*\<script.*?\>\s*", RegexOptions.Multiline | RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            scriptEndRegex = new Regex(@"\G\s*\<\/script\>\s*", RegexOptions.Singleline | RegexOptions.IgnoreCase);
             doctypeRegex = new Regex(@"\G\s*\<!DOCTYPE.*?\>\s*", RegexOptions.Multiline | RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            scriptGrLsRegex = new Regex(@"(>|<)*", RegexOptions.Singleline | RegexOptions.IgnoreCase);
         }
 
         private IWebFormsNodeFilterProvider NodeFilterProvider
@@ -62,10 +66,11 @@
         {
             Match match;
             int startAt = 0;
+            bool isScript = false;
 
             var root = new WebFormsNode { Type = NodeType.Document };
             IWebFormsNode parentNode = root;
-
+            
             do
             {
                 if ((match = textRegex.Match(input, startAt)).Success)
@@ -76,7 +81,7 @@
 
                 if (startAt != input.Length)
                 {
-                    if ((match = directiveRegex.Match(input, startAt)).Success)
+                    if (!isScript && (match = directiveRegex.Match(input, startAt)).Success)
                     {
                         var directiveNode = NodeFactory.CreateNode(match, NodeType.Directive);
                         parentNode.Children.Add(directiveNode);
@@ -86,25 +91,31 @@
                         var commentNode = NodeFactory.CreateNode(match, NodeType.Comment);
                         parentNode.Children.Add(commentNode);
                     }
-                    else if ((match = runatServerTagRegex.Match(input, startAt)).Success)
+                    else if (!isScript && (match = runatServerTagRegex.Match(input, startAt)).Success)
                     {
                         var serverControlNode = NodeFactory.CreateNode(match, NodeType.ServerControl);
                         parentNode.Children.Add(serverControlNode);
                         parentNode = serverControlNode;
                     }
-                    else if ((match = doctypeRegex.Match(input, startAt)).Success)
+                    else if (!isScript && (match = doctypeRegex.Match(input, startAt)).Success)
                     {
                         AppendTextNode(parentNode, match);
                     }
-                    else if ((match = scriptRegex.Match(input, startAt)).Success)
+                    else if (!isScript && (match = scriptStartRegex.Match(input, startAt)).Success)
+                    {
+                        isScript = true;
+                        AppendTextNode(parentNode, match);
+                    }
+                    else if ((match = scriptEndRegex.Match(input, startAt)).Success)
+                    {
+                        isScript = false;
+                        AppendTextNode(parentNode, match);
+                    }
+                    else if (!isScript && (match = startTagOpeningBracketRegex.Match(input, startAt)).Success)
                     {
                         AppendTextNode(parentNode, match);
                     }
-                    else if ((match = startTagOpeningBracketRegex.Match(input, startAt)).Success)
-                    {
-                        AppendTextNode(parentNode, match);
-                    }
-                    else if ((match = endTagRegex.Match(input, startAt)).Success)
+                    else if (!isScript && (match = endTagRegex.Match(input, startAt)).Success)
                     {
                         var tagName = match.Groups["tagname"].Captures[0].Value;
                         var serverControlParent = parentNode as IWebFormsServerControlNode;
@@ -126,6 +137,11 @@
                     {
                         var codeBlockNode = NodeFactory.CreateNode(match, NodeType.CodeBlock);
                         parentNode.Children.Add(codeBlockNode);
+                    }
+                    else if (isScript && (match = scriptGrLsRegex.Match(input, startAt)).Success)
+                    {
+                        // in javascript we can have following chars: > or <
+                        AppendTextNode(parentNode, match);
                     }
                     else
                     {
@@ -172,7 +188,7 @@
 
         private void AppendTextNode(IWebFormsNode parentNode, Match match)
         {
-            var currentTextNode = parentNode.Children.LastOrDefault() as IWebFormsTextNode;
+            IWebFormsTextNode currentTextNode = parentNode.Children.LastOrDefault() as IWebFormsTextNode;
             if (currentTextNode == null)
             {
                 currentTextNode = (IWebFormsTextNode) NodeFactory.CreateNode(match, NodeType.Text);

@@ -205,6 +205,52 @@
             var script = @"<script type=""text/javascript"">alert('</a><img');</script>";
             var document = parser.Parse(@"<asp:Content runat=""server"">" + script + @"</asp:Content>");
             ((IWebFormsTextNode)document.RootNode.Children[0].Children[0]).Text.ShouldEqual(script);
+        } 
+        
+        [Fact]
+        public void Should_not_parse_script_content_with_directive()
+        {
+            var script = @"<script type=""text/javascript"">alert('<dfg><%@ Page Language=""C#"" Inherits=""System.Web.Mvc.ViewPage<IEnumerable<OrderDto>>"" %>');</script>";
+            var document = parser.Parse(@"<asp:Content runat=""server"">" + script + @"</asp:Content>");
+            ((IWebFormsTextNode)document.RootNode.Children[0].Children[0]).Text.ShouldEqual(script);
+        }
+
+        [Fact]
+        public void Should_not_parse_script_content_with_server_control()
+        {
+            var script = @"<script type=""text/javascript"">alert('<dfg><asp:content contentplaceholderid=""maincontent"" runat=""server"">');</script>";
+            var document = parser.Parse(@"<asp:Content runat=""server"">" + script + @"</asp:Content>");
+            ((IWebFormsTextNode)document.RootNode.Children[0].Children[0]).Text.ShouldEqual(script);
+        }
+
+        [Fact]
+        public void Should_parse_script_with_expression_content()
+        {
+            var script = @"<script type=""text/javascript"">alert('<%= Html.SomeText() %></gh>');</script>";
+            var document = parser.Parse(@"<asp:Content runat=""server"">" + script + @"</asp:Content>");
+            IWebFormsNode webFormsNode = document.RootNode.Children[0];
+            ((IWebFormsTextNode)webFormsNode.Children[0]).Text.ShouldEqual(@"<script type=""text/javascript"">alert('");
+            ((IWebFormsExpressionBlockNode)webFormsNode.Children[1]).Expression.Trim().ShouldEqual("Html.SomeText()");
+            ((IWebFormsTextNode)webFormsNode.Children[2]).Text.ShouldEqual("</gh>');</script>");
+        }
+
+        [Fact]
+        public void Should_parse_script_with_endoded_expression_content()
+        {
+            var script = @"<script type=""text/javascript"">alert('<%= Html.SomeText() %><% Foo() %></fg>');</script>";
+            var document = parser.Parse(@"<asp:Content runat=""server"">" + script + @"</asp:Content>");
+            IWebFormsNode webFormsNode = document.RootNode.Children[0];
+            ((IWebFormsTextNode)webFormsNode.Children[0]).Text.ShouldEqual(@"<script type=""text/javascript"">alert('");
+            ((IWebFormsExpressionBlockNode)webFormsNode.Children[1]).Expression.Trim().ShouldEqual("Html.SomeText()");
+            ((IWebFormsCodeBlockNode)webFormsNode.Children[2]).Code.ShouldEqual(" Foo() ");
+            ((IWebFormsTextNode)webFormsNode.Children[3]).Text.ShouldEqual("</fg>');</script>");
+        }
+
+        [Fact]
+        public void Should_parse_script_with_comments()
+        {
+            var document = parser.Parse(@"<script type=""text/javascript"">alert('');<%-- COMMENT --%></script>");
+            ((IWebFormsCommentNode)document.RootNode.Children[1]).Text.ShouldEqual(" COMMENT ");
         }
 
         [Fact]
